@@ -148,13 +148,13 @@ export class YouTubeService {
    * 2. High-speed parallel race across public Invidious instances (Region IN)
    * 3. Fallback dataset
    */
-  static async getPopularVideos(maxResults = 16): Promise<Video[]> {
+  static async getPopularVideos(targetCount = 100, page = 1): Promise<Video[]> {
     const apiKey = this.getApiKey();
 
     // 1. Official API Key if provided
     if (this.isApiKeyConfigured() && apiKey) {
       try {
-        const url = `${YOUTUBE_API_BASE}/videos?part=snippet,contentDetails,statistics&chart=mostPopular&maxResults=${maxResults}&regionCode=IN&key=${apiKey}`;
+        const url = `${YOUTUBE_API_BASE}/videos?part=snippet,contentDetails,statistics&chart=mostPopular&maxResults=${Math.min(targetCount, 50)}&regionCode=IN&key=${apiKey}`;
         const response = await fetch(url);
         if (response.ok) {
           const data = await response.json();
@@ -177,8 +177,8 @@ export class YouTubeService {
       }
     }
 
-    // 2. Query live public instances with fast parallel race for real-time trending videos
-    const liveTrending = await this.getPopularFromLiveInstances(maxResults);
+    // 2. Query live public instances with parallel aggregation for real-time trending videos
+    const liveTrending = await this.getPopularFromLiveInstances(targetCount, page);
     if (liveTrending.length > 0) {
       return liveTrending;
     }
@@ -188,21 +188,18 @@ export class YouTubeService {
   }
 
   /**
-   * Search YouTube for ANY user query:
-   * 1. Official YouTube API (if key is set)
-   * 2. High-speed parallel race across public live instances
-   * 3. Dynamic results fallback
+   * Search YouTube for ANY user query with multi-page support (100+ initial results + infinite scrolling):
    */
-  static async searchVideos(query: string, maxResults = 20): Promise<Video[]> {
+  static async searchVideos(query: string, targetCount = 100, page = 1): Promise<Video[]> {
     const trimmed = query.trim();
-    if (!trimmed) return this.getPopularVideos(maxResults);
+    if (!trimmed) return this.getPopularVideos(targetCount, page);
 
     const apiKey = this.getApiKey();
 
     // 1. Official YouTube API if key provided
     if (this.isApiKeyConfigured() && apiKey) {
       try {
-        const searchUrl = `${YOUTUBE_API_BASE}/search?part=snippet&type=video&maxResults=${maxResults}&q=${encodeURIComponent(
+        const searchUrl = `${YOUTUBE_API_BASE}/search?part=snippet&type=video&maxResults=${Math.min(targetCount, 50)}&q=${encodeURIComponent(
           trimmed
         )}&key=${apiKey}`;
 
@@ -234,14 +231,59 @@ export class YouTubeService {
       }
     }
 
-    // 2. Query Live Public Invidious Engine with parallel race for 100% REAL YouTube search results
-    const liveResults = await this.searchFromLiveInstances(trimmed, maxResults);
+    // 2. Query Live Public Invidious Engine with parallel multi-page aggregation
+    const liveResults = await this.searchFromLiveInstances(trimmed, targetCount, page);
     if (liveResults.length > 0) {
       return liveResults;
     }
 
     // 3. Fallback matching
     return this.getFallbackSearchResults(trimmed);
+  }
+
+  /**
+   * Separate Dedicated Engine for Related Songs / Videos when a video is playing:
+   * Extracts clean keywords, artist/channel name, and fetches separate tailored recommendations.
+   */
+  static async getRelatedVideos(
+    video: { id?: string; title: string; channelTitle?: string },
+    targetCount = 30,
+    page = 1
+  ): Promise<Video[]> {
+    if (!video || !video.title) return [];
+
+    // Clean title from brackets, parentheses, and noise to get the core song/video theme
+    let cleanTitle = video.title
+      .replace(/\([^)]*\)/g, ' ')
+      .replace(/\[[^\]]*\]/g, ' ')
+      .replace(/[|#@:_—–-]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    const author = (video.channelTitle || '').trim();
+    const primaryTerms = cleanTitle.split(' ').slice(0, 6).join(' ');
+
+    const relatedQuery =
+      author && !primaryTerms.toLowerCase().includes(author.toLowerCase())
+        ? `${author} ${primaryTerms}`
+        : primaryTerms;
+
+    try {
+      const results = await this.searchFromLiveInstances(relatedQuery, targetCount, page);
+      const filtered = results.filter((v) => v.id !== video.id);
+      if (filtered.length > 0) return filtered;
+    } catch (e) {
+      console.warn('Failed to load related videos via targeted search:', e);
+    }
+
+    // Fallback query if very specific query returned few results
+    try {
+      const fallbackQuery = author ? `${author} songs` : `${primaryTerms} song`;
+      const fallbackResults = await this.searchFromLiveInstances(fallbackQuery, targetCount, page);
+      return fallbackResults.filter((v) => v.id !== video.id);
+    } catch {
+      return [];
+    }
   }
 
   static async getVideoById(videoId: string): Promise<Video> {
@@ -319,36 +361,17 @@ export class YouTubeService {
     };
   }
 
-  private static async searchFromLiveInstances(query: string, maxResults = 20): Promise<Video[]> {
+  private static async fetchFromInstances(urlPath: string, timeoutMs = 4500): Promise<any[]> {
     const promises = INVIDIOUS_INSTANCES.map(async (instance) => {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 4500);
+      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
       try {
-        const url = `${instance}/api/v1/search?q=${encodeURIComponent(query)}&type=video`;
-        const res = await fetch(url, { signal: controller.signal });
+        const res = await fetch(`${instance}${urlPath}`, { signal: controller.signal });
         clearTimeout(timeoutId);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
-
-        if (Array.isArray(data) && data.length > 0) {
-          const videos = data
-            .filter((item: any) => item.type === 'video' || (item.videoId && item.title))
-            .slice(0, maxResults)
-            .map((item: any) => ({
-              id: item.videoId,
-              title: item.title,
-              description: item.description || '',
-              thumbnailUrl: `https://img.youtube.com/vi/${item.videoId}/hqdefault.jpg`,
-              channelTitle: item.author || 'YouTube Creator',
-              publishedAt: item.publishedText || (item.published ? new Date(item.published * 1000).toISOString() : new Date().toISOString()),
-              duration: formatDurationSeconds(item.lengthSeconds),
-              viewCount: item.viewCountText || formatViewCount(item.viewCount),
-              category: 'YouTube Video',
-            }));
-
-          if (videos.length > 0) return videos;
-        }
-        throw new Error('No valid videos found');
+        if (Array.isArray(data) && data.length > 0) return data;
+        throw new Error('No items in array');
       } catch (err) {
         clearTimeout(timeoutId);
         throw err;
@@ -362,47 +385,146 @@ export class YouTubeService {
     }
   }
 
-  private static async getPopularFromLiveInstances(maxResults = 16): Promise<Video[]> {
-    const promises = INVIDIOUS_INSTANCES.map(async (instance) => {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 4500);
-      try {
-        const url = `${instance}/api/v1/trending?region=IN`;
-        const res = await fetch(url, { signal: controller.signal });
-        clearTimeout(timeoutId);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = await res.json();
-
-        if (Array.isArray(data) && data.length > 0) {
-          const videos = data
-            .filter((item: any) => item.videoId && item.title)
-            .slice(0, maxResults)
-            .map((item: any) => ({
-              id: item.videoId,
-              title: item.title,
-              description: item.description || '',
-              thumbnailUrl: `https://img.youtube.com/vi/${item.videoId}/hqdefault.jpg`,
-              channelTitle: item.author || 'YouTube Creator',
-              publishedAt: item.publishedText || (item.published ? new Date(item.published * 1000).toISOString() : new Date().toISOString()),
-              duration: formatDurationSeconds(item.lengthSeconds),
-              viewCount: item.viewCountText || formatViewCount(item.viewCount),
-              category: 'Trending',
-            }));
-
-          if (videos.length > 0) return videos;
-        }
-        throw new Error('No trending items found');
-      } catch (err) {
-        clearTimeout(timeoutId);
-        throw err;
-      }
+  private static async searchFromLiveInstances(
+    query: string,
+    targetCount = 100,
+    page = 1
+  ): Promise<Video[]> {
+    const mapItem = (item: any): Video => ({
+      id: item.videoId,
+      title: item.title,
+      description: item.description || '',
+      thumbnailUrl:
+        item.videoThumbnails?.find((t: any) => t.quality === 'medium' || t.quality === 'high')?.url ||
+        `https://img.youtube.com/vi/${item.videoId}/hqdefault.jpg`,
+      channelTitle: item.author || 'YouTube Creator',
+      publishedAt:
+        item.publishedText ||
+        (item.published ? new Date(item.published * 1000).toISOString() : new Date().toISOString()),
+      duration: formatDurationSeconds(item.lengthSeconds),
+      viewCount: item.viewCountText || formatViewCount(item.viewCount),
+      category: 'Search Result',
     });
 
-    try {
-      return await Promise.any(promises);
-    } catch {
-      return [];
+    // If initial load requested 100 items, fetch pages 1..5 in parallel
+    if (page === 1 && targetCount >= 50) {
+      const tasks = [
+        this.fetchFromInstances(`/api/v1/search?q=${encodeURIComponent(query)}&type=video&page=1`),
+        this.fetchFromInstances(`/api/v1/search?q=${encodeURIComponent(query)}&type=video&page=2`),
+        this.fetchFromInstances(`/api/v1/search?q=${encodeURIComponent(query)}&type=video&page=3`),
+        this.fetchFromInstances(`/api/v1/search?q=${encodeURIComponent(query + ' latest')}&type=video&page=1`),
+        this.fetchFromInstances(`/api/v1/search?q=${encodeURIComponent(query + ' trending')}&type=video&page=1`),
+        this.fetchFromInstances(`/api/v1/search?q=${encodeURIComponent(query + ' popular')}&type=video&page=1`),
+      ];
+
+      const responses = await Promise.allSettled(tasks);
+      const seen = new Set<string>();
+      const combined: Video[] = [];
+
+      for (const r of responses) {
+        if (r.status === 'fulfilled' && Array.isArray(r.value)) {
+          for (const item of r.value) {
+            if (item && item.videoId && !seen.has(item.videoId)) {
+              seen.add(item.videoId);
+              combined.push(mapItem(item));
+              if (combined.length >= targetCount) break;
+            }
+          }
+        }
+        if (combined.length >= targetCount) break;
+      }
+
+      if (combined.length > 0) return combined;
     }
+
+    // Single page fetch (for infinite scroll or page > 1)
+    const singleData = await this.fetchFromInstances(
+      `/api/v1/search?q=${encodeURIComponent(query)}&type=video&page=${page}`
+    );
+
+    const seen = new Set<string>();
+    const videos: Video[] = [];
+    for (const item of singleData) {
+      if (item && item.videoId && !seen.has(item.videoId)) {
+        seen.add(item.videoId);
+        videos.push(mapItem(item));
+      }
+    }
+    return videos;
+  }
+
+  private static async getPopularFromLiveInstances(
+    targetCount = 100,
+    page = 1
+  ): Promise<Video[]> {
+    const mapItem = (item: any): Video => ({
+      id: item.videoId,
+      title: item.title,
+      description: item.description || '',
+      thumbnailUrl:
+        item.videoThumbnails?.find((t: any) => t.quality === 'medium' || t.quality === 'high')?.url ||
+        `https://img.youtube.com/vi/${item.videoId}/hqdefault.jpg`,
+      channelTitle: item.author || 'YouTube Creator',
+      publishedAt:
+        item.publishedText ||
+        (item.published ? new Date(item.published * 1000).toISOString() : new Date().toISOString()),
+      duration: formatDurationSeconds(item.lengthSeconds),
+      viewCount: item.viewCountText || formatViewCount(item.viewCount),
+      category: 'Trending',
+    });
+
+    // If initial load requested 100 items, fetch trending IN + diverse categories in parallel
+    if (page === 1 && targetCount >= 50) {
+      const tasks = [
+        this.fetchFromInstances('/api/v1/trending?region=IN'),
+        this.fetchFromInstances('/api/v1/search?q=trending+videos+india&type=video&page=1'),
+        this.fetchFromInstances('/api/v1/search?q=trending+videos+india&type=video&page=2'),
+        this.fetchFromInstances('/api/v1/search?q=top+music+songs+india&type=video&page=1'),
+        this.fetchFromInstances('/api/v1/search?q=popular+entertainment+india&type=video&page=1'),
+        this.fetchFromInstances('/api/v1/search?q=viral+comedy+india&type=video&page=1'),
+        this.fetchFromInstances('/api/v1/search?q=superhit+hindi+songs&type=video&page=1'),
+      ];
+
+      const responses = await Promise.allSettled(tasks);
+      const seen = new Set<string>();
+      const combined: Video[] = [];
+
+      for (const r of responses) {
+        if (r.status === 'fulfilled' && Array.isArray(r.value)) {
+          for (const item of r.value) {
+            if (item && item.videoId && !seen.has(item.videoId)) {
+              seen.add(item.videoId);
+              combined.push(mapItem(item));
+              if (combined.length >= targetCount) break;
+            }
+          }
+        }
+        if (combined.length >= targetCount) break;
+      }
+
+      if (combined.length > 0) return combined;
+    }
+
+    // Page > 1 for infinite scroll on Home page
+    const pageTasks = [
+      this.fetchFromInstances(`/api/v1/search?q=trending+videos+india&type=video&page=${page}`),
+      this.fetchFromInstances(`/api/v1/search?q=top+music+songs+india&type=video&page=${page}`),
+    ];
+    const responses = await Promise.allSettled(pageTasks);
+    const seen = new Set<string>();
+    const videos: Video[] = [];
+
+    for (const r of responses) {
+      if (r.status === 'fulfilled' && Array.isArray(r.value)) {
+        for (const item of r.value) {
+          if (item && item.videoId && !seen.has(item.videoId)) {
+            seen.add(item.videoId);
+            videos.push(mapItem(item));
+          }
+        }
+      }
+    }
+    return videos;
   }
 
   private static async getVideoDetailsMap(

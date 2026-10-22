@@ -21,6 +21,8 @@ import {
   IoFlameOutline,
 } from 'react-icons/io5';
 
+import { deduplicateVideos } from '../utils/formatters';
+
 interface HomeScreenProps {
   onToast: (msg: string) => void;
 }
@@ -33,6 +35,9 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onToast }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [popularVideos, setPopularVideos] = useState<Video[]>([]);
   const [loadingVideos, setLoadingVideos] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [modalVideo, setModalVideo] = useState<Video | null>(null);
 
@@ -43,14 +48,17 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onToast }) => {
 
   useEffect(() => {
     let isCurrent = true;
+    setPage(1);
+    setHasMore(true);
+
     const loadVideos = async () => {
       setLoadingVideos(true);
       try {
         if (selectedCategory === 'All') {
-          const list = await YouTubeService.getPopularVideos(16);
+          const list = await YouTubeService.getPopularVideos(100, 1);
           if (isCurrent) setPopularVideos(list);
         } else {
-          const list = await YouTubeService.searchVideos(`${selectedCategory} India`, 16);
+          const list = await YouTubeService.searchVideos(`${selectedCategory} India`, 100, 1);
           if (isCurrent) setPopularVideos(list);
         }
       } catch (e) {
@@ -64,6 +72,44 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onToast }) => {
       isCurrent = false;
     };
   }, [selectedCategory]);
+
+  const handleLoadMore = React.useCallback(async () => {
+    if (loadingMore || loadingVideos || !hasMore) return;
+    setLoadingMore(true);
+    try {
+      const nextPage = page + 1;
+      let nextBatch: Video[] = [];
+      if (selectedCategory === 'All') {
+        nextBatch = await YouTubeService.getPopularVideos(30, nextPage);
+      } else {
+        nextBatch = await YouTubeService.searchVideos(`${selectedCategory} India`, 30, nextPage);
+      }
+
+      if (nextBatch.length === 0) {
+        setHasMore(false);
+      } else {
+        setPopularVideos((prev) => deduplicateVideos(prev, nextBatch));
+        setPage(nextPage);
+      }
+    } catch (e) {
+      console.warn('Error loading more recommendations:', e);
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [loadingMore, loadingVideos, hasMore, page, selectedCategory]);
+
+  useEffect(() => {
+    const onScroll = () => {
+      const scrollPosition = window.innerHeight + window.scrollY;
+      const documentHeight = document.documentElement.offsetHeight;
+      if (documentHeight - scrollPosition < 800) {
+        handleLoadMore();
+      }
+    };
+
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, [handleLoadMore]);
 
   const handleSearchSubmit = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -415,7 +461,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onToast }) => {
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.85rem' }}>
           <IoFlameOutline size={22} color={colors.primary} />
           <h3 style={{ fontSize: '1.2rem', fontWeight: 700, color: colors.textPrimary, margin: 0 }}>
-            Trending & Discover
+            Trending & Discover ({popularVideos.length})
           </h3>
         </div>
 
@@ -482,6 +528,33 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onToast }) => {
                 onToast={onToast}
               />
             ))}
+          </div>
+        )}
+
+        {loadingMore && (
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '0.65rem',
+              padding: '2rem 1rem',
+              color: colors.textSecondary,
+              fontSize: '0.9rem',
+              fontWeight: 600,
+            }}
+          >
+            <div
+              style={{
+                width: 20,
+                height: 20,
+                borderRadius: '50%',
+                border: `3px solid ${colors.cardBorder}`,
+                borderTopColor: colors.primary,
+                animation: 'spin 0.8s linear infinite',
+              }}
+            />
+            Loading more recommendations...
           </div>
         )}
       </section>

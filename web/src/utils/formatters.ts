@@ -75,3 +75,18 @@ export function formatFileSize(bytes?: number): string {
   }
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
+
+/**
+ * Deduplicate video arrays by unique id
+ */
+export function deduplicateVideos<T extends { id: string }>(existing: T[], incoming: T[]): T[] {
+  const seen = new Set(existing.map((v) => v.id));
+  const result = [...existing];
+  for (const item of incoming) {
+    if (item && item.id && !seen.has(item.id)) {
+      seen.add(item.id);
+      result.push(item);
+    }
+  }
+  return result;
+}

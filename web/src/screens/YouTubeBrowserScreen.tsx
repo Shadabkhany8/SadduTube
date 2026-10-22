@@ -5,6 +5,7 @@ import { VideoCard } from '../components/VideoCard';
 import { Video } from '../types';
 import { YouTubeService } from '../services/youtube.service';
 import { extractYouTubeVideoId, normalizeYouTubeUrl } from '../utils/validation';
+import { deduplicateVideos } from '../utils/formatters';
 import {
   IoSearch,
   IoLogoYoutube,
@@ -30,8 +31,12 @@ export const YouTubeBrowserScreen: React.FC<YouTubeBrowserScreenProps> = ({ onTo
   const initialQuery = searchParams.get('q') || '';
 
   const [queryInput, setQueryInput] = useState(initialQuery);
+  const [currentSearch, setCurrentSearch] = useState(initialQuery);
   const [results, setResults] = useState<Video[]>([]);
   const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
   const [activeCategory, setActiveCategory] = useState<string>('Trending');
 
   useEffect(() => {
@@ -63,9 +68,12 @@ export const YouTubeBrowserScreen: React.FC<YouTubeBrowserScreenProps> = ({ onTo
 
   const loadCategoryFeed = async (category: string) => {
     setActiveCategory(category);
+    setCurrentSearch('');
+    setPage(1);
+    setHasMore(true);
     setLoading(true);
     try {
-      const vids = await YouTubeService.getPopularVideos(20);
+      const vids = await YouTubeService.getPopularVideos(100, 1);
       setResults(vids);
     } catch {
       // ignore
@@ -83,9 +91,12 @@ export const YouTubeBrowserScreen: React.FC<YouTubeBrowserScreenProps> = ({ onTo
       return;
     }
     setLoading(true);
+    setCurrentSearch(trimmed);
+    setPage(1);
+    setHasMore(true);
     setActiveCategory(`Search: "${trimmed}"`);
     try {
-      const vids = await YouTubeService.searchVideos(trimmed, 20);
+      const vids = await YouTubeService.searchVideos(trimmed, 100, 1);
       setResults(vids);
     } catch (err) {
       console.warn('Search failed:', err);
@@ -93,6 +104,44 @@ export const YouTubeBrowserScreen: React.FC<YouTubeBrowserScreenProps> = ({ onTo
       setLoading(false);
     }
   };
+
+  const handleLoadMore = React.useCallback(async () => {
+    if (loadingMore || loading || !hasMore) return;
+    setLoadingMore(true);
+    try {
+      const nextPage = page + 1;
+      let nextBatch: Video[] = [];
+      if (currentSearch) {
+        nextBatch = await YouTubeService.searchVideos(currentSearch, 30, nextPage);
+      } else {
+        nextBatch = await YouTubeService.getPopularVideos(30, nextPage);
+      }
+
+      if (nextBatch.length === 0) {
+        setHasMore(false);
+      } else {
+        setResults((prev) => deduplicateVideos(prev, nextBatch));
+        setPage(nextPage);
+      }
+    } catch (e) {
+      console.warn('Error loading more search results:', e);
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [loadingMore, loading, hasMore, page, currentSearch]);
+
+  useEffect(() => {
+    const onScroll = () => {
+      const scrollPosition = window.innerHeight + window.scrollY;
+      const documentHeight = document.documentElement.offsetHeight;
+      if (documentHeight - scrollPosition < 800) {
+        handleLoadMore();
+      }
+    };
+
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, [handleLoadMore]);
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -285,6 +334,33 @@ export const YouTubeBrowserScreen: React.FC<YouTubeBrowserScreenProps> = ({ onTo
               onToast={onToast}
             />
           ))}
+        </div>
+      )}
+
+      {loadingMore && (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '0.65rem',
+            padding: '2rem 1rem',
+            color: colors.textSecondary,
+            fontSize: '0.9rem',
+            fontWeight: 600,
+          }}
+        >
+          <div
+            style={{
+              width: 20,
+              height: 20,
+              borderRadius: '50%',
+              border: `3px solid ${colors.cardBorder}`,
+              borderTopColor: colors.primary,
+              animation: 'spin 0.8s linear infinite',
+            }}
+          />
+          Loading more results...
         </div>
       )}
     </div>

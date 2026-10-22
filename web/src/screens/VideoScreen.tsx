@@ -8,7 +8,7 @@ import { AddSavedTabModal } from '../components/AddSavedTabModal';
 import { DownloadModal } from '../components/DownloadModal';
 import { Video } from '../types';
 import { YouTubeService } from '../services/youtube.service';
-import { formatRelativeTime } from '../utils/formatters';
+import { deduplicateVideos, formatRelativeTime } from '../utils/formatters';
 import {
   IoArrowBack,
   IoBookmark,
@@ -34,6 +34,9 @@ export const VideoScreen: React.FC<VideoScreenProps> = ({ onToast }) => {
   const [video, setVideo] = useState<Video | null>(null);
   const [relatedVideos, setRelatedVideos] = useState<Video[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMoreRelated, setLoadingMoreRelated] = useState(false);
+  const [relatedPage, setRelatedPage] = useState(1);
+  const [hasMoreRelated, setHasMoreRelated] = useState(true);
   const [showFullDesc, setShowFullDesc] = useState(false);
   const [showSaveTabModal, setShowSaveTabModal] = useState(false);
   const [showDownloadModal, setShowDownloadModal] = useState(false);
@@ -45,6 +48,8 @@ export const VideoScreen: React.FC<VideoScreenProps> = ({ onToast }) => {
     if (!videoId) return;
 
     window.scrollTo({ top: 0, behavior: 'smooth' });
+    setRelatedPage(1);
+    setHasMoreRelated(true);
 
     const loadDetails = async () => {
       setLoading(true);
@@ -55,8 +60,8 @@ export const VideoScreen: React.FC<VideoScreenProps> = ({ onToast }) => {
         // Auto log to watch history
         addToHistory(details);
 
-        // Fetch related videos
-        const related = await YouTubeService.getPopularVideos(8);
+        // Fetch tailored related songs/videos specifically for this video
+        const related = await YouTubeService.getRelatedVideos(details, 30, 1);
         setRelatedVideos(related.filter((v) => v.id !== videoId));
       } catch (err) {
         console.warn('Failed to load video details:', err);
@@ -67,6 +72,23 @@ export const VideoScreen: React.FC<VideoScreenProps> = ({ onToast }) => {
 
     loadDetails();
   }, [videoId, addToHistory]);
+
+  const handleLoadMoreRelated = async () => {
+    if (!video || loadingMoreRelated) return;
+    setLoadingMoreRelated(true);
+    try {
+      const nextPage = relatedPage + 1;
+      const more = await YouTubeService.getRelatedVideos(video, 25, nextPage);
+      const filtered = more.filter((v) => v.id !== video.id);
+      setRelatedVideos((prev) => deduplicateVideos(prev, filtered));
+      setRelatedPage(nextPage);
+      if (filtered.length === 0) setHasMoreRelated(false);
+    } catch {
+      // ignore
+    } finally {
+      setLoadingMoreRelated(false);
+    }
+  };
 
   const handleToggleBookmark = () => {
     if (!video) return;
@@ -446,16 +468,30 @@ export const VideoScreen: React.FC<VideoScreenProps> = ({ onToast }) => {
 
         {/* Sidebar / Related Videos Column */}
         <div>
-          <h3
-            style={{
-              fontSize: '1.1rem',
-              fontWeight: 700,
-              color: colors.textPrimary,
-              margin: '0 0 0.85rem',
-            }}
-          >
-            Up Next & Related Videos
-          </h3>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.85rem' }}>
+            <h3
+              style={{
+                fontSize: '1.05rem',
+                fontWeight: 700,
+                color: colors.textPrimary,
+                margin: 0,
+              }}
+            >
+              Related Songs & Videos ({relatedVideos.length})
+            </h3>
+            <span
+              style={{
+                fontSize: '0.72rem',
+                fontWeight: 700,
+                color: colors.primary,
+                backgroundColor: colors.badgeBg,
+                padding: '0.2rem 0.5rem',
+                borderRadius: 8,
+              }}
+            >
+              Tailored
+            </span>
+          </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
             {relatedVideos.map((item) => (
@@ -466,6 +502,28 @@ export const VideoScreen: React.FC<VideoScreenProps> = ({ onToast }) => {
                 onToast={onToast}
               />
             ))}
+
+            {hasMoreRelated && relatedVideos.length > 0 && (
+              <button
+                onClick={handleLoadMoreRelated}
+                disabled={loadingMoreRelated}
+                style={{
+                  marginTop: '0.5rem',
+                  padding: '0.75rem',
+                  borderRadius: 12,
+                  border: `1px solid ${colors.border}`,
+                  backgroundColor: colors.surfaceVariant,
+                  color: colors.primary,
+                  fontWeight: 700,
+                  fontSize: '0.85rem',
+                  cursor: loadingMoreRelated ? 'wait' : 'pointer',
+                  width: '100%',
+                  transition: 'background-color 0.2s ease',
+                }}
+              >
+                {loadingMoreRelated ? 'Loading More Related Songs...' : 'Load More Related Songs'}
+              </button>
+            )}
           </div>
         </div>
       </div>
