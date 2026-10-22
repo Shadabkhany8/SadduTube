@@ -4,6 +4,8 @@ import { useTheme } from '../context/ThemeContext';
 import { VideoCard } from '../components/VideoCard';
 import { Video } from '../types';
 import { YouTubeService } from '../services/youtube.service';
+import { SearchHistoryService } from '../services/searchHistory.service';
+import { SearchAutocompleteDropdown } from '../components/SearchAutocompleteDropdown';
 import { extractYouTubeVideoId, normalizeYouTubeUrl } from '../utils/validation';
 import { deduplicateVideos } from '../utils/formatters';
 import {
@@ -31,6 +33,7 @@ export const YouTubeBrowserScreen: React.FC<YouTubeBrowserScreenProps> = ({ onTo
   const initialQuery = searchParams.get('q') || '';
 
   const [queryInput, setQueryInput] = useState(initialQuery);
+  const [showDropdown, setShowDropdown] = useState(false);
   const [currentSearch, setCurrentSearch] = useState(initialQuery);
   const [results, setResults] = useState<Video[]>([]);
   const [loading, setLoading] = useState(false);
@@ -82,9 +85,18 @@ export const YouTubeBrowserScreen: React.FC<YouTubeBrowserScreenProps> = ({ onTo
     }
   };
 
+  const handleSelectSuggestion = (selectedQuery: string) => {
+    SearchHistoryService.addSearchQuery(selectedQuery);
+    setQueryInput(selectedQuery);
+    setShowDropdown(false);
+    handleSearchQuery(selectedQuery);
+  };
+
   const handleSearchQuery = async (searchStr: string) => {
     const trimmed = searchStr.trim();
     if (!trimmed) return;
+    SearchHistoryService.addSearchQuery(trimmed);
+    setShowDropdown(false);
     const vId = extractYouTubeVideoId(trimmed);
     if (vId) {
       navigate(`/video/${vId}`);
@@ -203,57 +215,73 @@ export const YouTubeBrowserScreen: React.FC<YouTubeBrowserScreenProps> = ({ onTo
         }}
       >
         <IoLogoYoutube size={28} color={colors.primary} />
-        <form onSubmit={handleSearchSubmit} style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-          <input
-            type="text"
-            placeholder="Search YouTube or paste URL / Video ID..."
-            value={queryInput}
-            onChange={(e) => setQueryInput(e.target.value)}
-            style={{
-              flex: 1,
-              background: 'none',
-              border: 'none',
-              outline: 'none',
-              fontSize: '0.95rem',
-              color: colors.textPrimary,
-            }}
-          />
-          {queryInput.length > 0 && (
-            <button
-              type="button"
-              onClick={() => setQueryInput('')}
+        <div style={{ flex: 1, position: 'relative' }}>
+          <form onSubmit={handleSearchSubmit} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <input
+              type="text"
+              placeholder="Search YouTube or paste URL / Video ID..."
+              value={queryInput}
+              onChange={(e) => {
+                setQueryInput(e.target.value);
+                setShowDropdown(true);
+              }}
+              onFocus={() => setShowDropdown(true)}
               style={{
+                flex: 1,
                 background: 'none',
                 border: 'none',
-                color: colors.textMuted,
+                outline: 'none',
+                fontSize: '0.95rem',
+                color: colors.textPrimary,
+              }}
+            />
+            {queryInput.length > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  setQueryInput('');
+                  setShowDropdown(true);
+                }}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: colors.textMuted,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  padding: 2,
+                }}
+              >
+                <IoCloseCircle size={18} />
+              </button>
+            )}
+            <button
+              type="submit"
+              style={{
+                backgroundColor: colors.primary,
+                color: '#FFFFFF',
+                border: 'none',
+                borderRadius: 12,
+                padding: '0.55rem 1.15rem',
+                fontSize: '0.88rem',
+                fontWeight: 700,
                 cursor: 'pointer',
                 display: 'flex',
-                padding: 2,
+                alignItems: 'center',
+                gap: '0.4rem',
               }}
             >
-              <IoCloseCircle size={18} />
+              <IoSearch size={16} />
+              Search
             </button>
-          )}
-          <button
-            type="submit"
-            style={{
-              backgroundColor: colors.primary,
-              color: '#FFFFFF',
-              border: 'none',
-              borderRadius: 12,
-              padding: '0.55rem 1.15rem',
-              fontSize: '0.88rem',
-              fontWeight: 700,
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.4rem',
-            }}
-          >
-            <IoSearch size={16} />
-            Search
-          </button>
-        </form>
+          </form>
+
+          <SearchAutocompleteDropdown
+            query={queryInput}
+            isOpen={showDropdown}
+            onSelect={handleSelectSuggestion}
+            onClose={() => setShowDropdown(false)}
+          />
+        </div>
       </div>
 
       {/* Quick Destinations bar */}

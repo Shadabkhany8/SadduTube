@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTheme } from '../context/ThemeContext';
+import { SearchAutocompleteDropdown } from './SearchAutocompleteDropdown';
+import { SearchHistoryService } from '../services/searchHistory.service';
 import {
   IoSearch,
   IoClose,
@@ -24,13 +26,22 @@ export const SearchModal: React.FC<SearchModalProps> = ({ visible, onClose }) =>
   const { colors } = useTheme();
   const navigate = useNavigate();
   const [query, setQuery] = useState('');
+  const [showDropdown, setShowDropdown] = useState(true);
 
   if (!visible) return null;
+
+  const handleSelectSuggestion = (selectedQuery: string) => {
+    SearchHistoryService.addSearchQuery(selectedQuery);
+    onClose();
+    setQuery('');
+    navigate(`/youtube?q=${encodeURIComponent(selectedQuery)}`);
+  };
 
   const handleSearch = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!query.trim()) return;
     const targetQuery = query.trim();
+    SearchHistoryService.addSearchQuery(targetQuery);
     onClose();
     setQuery('');
     navigate(`/youtube?q=${encodeURIComponent(targetQuery)}`);
@@ -101,72 +112,90 @@ export const SearchModal: React.FC<SearchModalProps> = ({ visible, onClose }) =>
           </button>
         </div>
 
-        <form onSubmit={handleSearch} style={{ marginBottom: '1.25rem' }}>
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              backgroundColor: colors.surfaceVariant,
-              border: `1px solid ${colors.border}`,
-              borderRadius: 14,
-              padding: '0 0.85rem',
-              gap: '0.65rem',
-              marginBottom: '0.75rem',
-            }}
-          >
-            <IoSearch size={20} color={colors.textMuted} />
-            <input
-              type="text"
-              placeholder="Search query or enter YouTube URL..."
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              autoFocus
+        <div style={{ position: 'relative', marginBottom: '1.25rem' }}>
+          <form onSubmit={handleSearch}>
+            <div
               style={{
-                flex: 1,
-                background: 'none',
-                border: 'none',
-                outline: 'none',
-                padding: '0.85rem 0',
-                color: colors.textPrimary,
-                fontSize: '0.95rem',
+                display: 'flex',
+                alignItems: 'center',
+                backgroundColor: colors.surfaceVariant,
+                border: `1px solid ${showDropdown ? colors.primary : colors.border}`,
+                borderRadius: 14,
+                padding: '0 0.85rem',
+                gap: '0.65rem',
+                marginBottom: '0.75rem',
+                transition: 'border-color 0.2s ease',
               }}
-            />
-            {query.length > 0 && (
-              <button
-                type="button"
-                onClick={() => setQuery('')}
+            >
+              <IoSearch size={20} color={colors.textMuted} />
+              <input
+                type="text"
+                placeholder="Search query or enter YouTube URL..."
+                value={query}
+                onChange={(e) => {
+                  setQuery(e.target.value);
+                  setShowDropdown(true);
+                }}
+                onFocus={() => setShowDropdown(true)}
+                autoFocus
                 style={{
+                  flex: 1,
                   background: 'none',
                   border: 'none',
-                  cursor: 'pointer',
-                  color: colors.textMuted,
-                  display: 'flex',
-                  padding: 2,
+                  outline: 'none',
+                  padding: '0.85rem 0',
+                  color: colors.textPrimary,
+                  fontSize: '0.95rem',
                 }}
-              >
-                <IoClose size={18} />
-              </button>
-            )}
-          </div>
+              />
+              {query.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setQuery('');
+                    setShowDropdown(true);
+                  }}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    color: colors.textMuted,
+                    display: 'flex',
+                    padding: 2,
+                  }}
+                >
+                  <IoClose size={18} />
+                </button>
+              )}
+            </div>
 
-          <button
-            type="submit"
-            style={{
-              width: '100%',
-              backgroundColor: colors.primary,
-              color: '#FFFFFF',
-              border: 'none',
-              borderRadius: 14,
-              padding: '0.8rem',
-              fontSize: '0.95rem',
-              fontWeight: 700,
-              cursor: 'pointer',
-              transition: 'background 0.2s ease',
-            }}
-          >
-            Go to YouTube
-          </button>
-        </form>
+            <button
+              type="submit"
+              style={{
+                width: '100%',
+                backgroundColor: colors.primary,
+                color: '#FFFFFF',
+                border: 'none',
+                borderRadius: 14,
+                padding: '0.8rem',
+                fontSize: '0.95rem',
+                fontWeight: 700,
+                cursor: 'pointer',
+                transition: 'background 0.2s ease',
+              }}
+            >
+              Go to YouTube
+            </button>
+          </form>
+
+          <SearchAutocompleteDropdown
+            query={query}
+            isOpen={showDropdown}
+            onSelect={handleSelectSuggestion}
+            onClose={() => setShowDropdown(false)}
+            style={{ maxHeight: 250 }}
+          />
+        </div>
 
         {/* Quick Nav Row */}
         <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '1.25rem' }}>

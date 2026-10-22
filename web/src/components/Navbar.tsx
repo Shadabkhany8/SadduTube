@@ -3,6 +3,8 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { useTheme } from '../context/ThemeContext';
 import { useAppData } from '../context/AppDataContext';
 import { SadduTubeBrand } from './SadduTubeBrand';
+import { SearchAutocompleteDropdown } from './SearchAutocompleteDropdown';
+import { SearchHistoryService } from '../services/searchHistory.service';
 import {
   IoSearch,
   IoCloudDownloadOutline,
@@ -22,12 +24,22 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenSearchModal }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const [inlineSearch, setInlineSearch] = useState('');
+  const [showDropdown, setShowDropdown] = useState(false);
+
+  const handleSelectSuggestion = (selectedQuery: string) => {
+    SearchHistoryService.addSearchQuery(selectedQuery);
+    setInlineSearch('');
+    setShowDropdown(false);
+    navigate(`/youtube?q=${encodeURIComponent(selectedQuery)}`);
+  };
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!inlineSearch.trim()) return;
     const query = inlineSearch.trim();
+    SearchHistoryService.addSearchQuery(query);
     setInlineSearch('');
+    setShowDropdown(false);
     navigate(`/youtube?q=${encodeURIComponent(query)}`);
   };
 
@@ -58,56 +70,70 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenSearchModal }) => {
         </div>
       </div>
 
-      {/* Center Search Bar (Visible on desktop & tablets) */}
-      <form
-        onSubmit={handleSearchSubmit}
-        className="navbar-search-form"
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          maxWidth: 480,
-          flex: 1,
-          margin: '0 1.5rem',
-          backgroundColor: colors.surfaceVariant,
-          border: `1px solid ${colors.border}`,
-          borderRadius: 24,
-          padding: '0 0.85rem',
-          height: 40,
-        }}
-      >
-        <IoSearch size={18} color={colors.textMuted} />
-        <input
-          type="text"
-          placeholder="Search YouTube or paste URL..."
-          value={inlineSearch}
-          onChange={(e) => setInlineSearch(e.target.value)}
+      {/* Center Search Bar (Visible on desktop & tablets) with Autocomplete */}
+      <div style={{ position: 'relative', maxWidth: 480, flex: 1, margin: '0 1.5rem' }}>
+        <form
+          onSubmit={handleSearchSubmit}
+          className="navbar-search-form"
           style={{
-            flex: 1,
-            background: 'none',
-            border: 'none',
-            outline: 'none',
-            color: colors.textPrimary,
-            fontSize: '0.88rem',
-            padding: '0 0.5rem',
+            display: 'flex',
+            alignItems: 'center',
+            backgroundColor: colors.surfaceVariant,
+            border: `1px solid ${showDropdown ? colors.primary : colors.border}`,
+            borderRadius: 24,
+            padding: '0 0.85rem',
+            height: 40,
+            transition: 'border-color 0.2s ease',
           }}
-        />
-        {inlineSearch && (
-          <button
-            type="button"
-            onClick={() => setInlineSearch('')}
+        >
+          <IoSearch size={18} color={colors.textMuted} />
+          <input
+            type="text"
+            placeholder="Search YouTube or paste URL..."
+            value={inlineSearch}
+            onChange={(e) => {
+              setInlineSearch(e.target.value);
+              setShowDropdown(true);
+            }}
+            onFocus={() => setShowDropdown(true)}
             style={{
+              flex: 1,
               background: 'none',
               border: 'none',
-              cursor: 'pointer',
-              color: colors.textMuted,
-              display: 'flex',
-              padding: 2,
+              outline: 'none',
+              color: colors.textPrimary,
+              fontSize: '0.88rem',
+              padding: '0 0.5rem',
             }}
-          >
-            <IoClose size={16} />
-          </button>
-        )}
-      </form>
+          />
+          {inlineSearch && (
+            <button
+              type="button"
+              onClick={() => {
+                setInlineSearch('');
+                setShowDropdown(true);
+              }}
+              style={{
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                color: colors.textMuted,
+                display: 'flex',
+                padding: 2,
+              }}
+            >
+              <IoClose size={16} />
+            </button>
+          )}
+        </form>
+
+        <SearchAutocompleteDropdown
+          query={inlineSearch}
+          isOpen={showDropdown}
+          onSelect={handleSelectSuggestion}
+          onClose={() => setShowDropdown(false)}
+        />
+      </div>
 
       {/* Right action icons */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
