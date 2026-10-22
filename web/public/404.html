@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>SadduTube</title>
+    <script type="text/javascript">
+      // Redirect to root with hash route
+      var path = window.location.pathname;
+      var repo = path.split('/')[1] || '';
+      var target = window.location.origin + (repo ? '/' + repo + '/' : '/') + '#' + path.replace('/' + repo, '');
+      window.location.replace(target);
+    </script>
+  </head>
+  <body>
+    <p>Redirecting to <a href="./">SadduTube</a>...</p>
+  </body>
+</html>
