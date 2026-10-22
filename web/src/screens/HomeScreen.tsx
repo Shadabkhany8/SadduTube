@@ -55,10 +55,10 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onToast }) => {
       setLoadingVideos(true);
       try {
         if (selectedCategory === 'All') {
-          const list = await YouTubeService.getPopularVideos(100, 1);
+          const list = await YouTubeService.getPopularVideos(10, 1);
           if (isCurrent) setPopularVideos(list);
         } else {
-          const list = await YouTubeService.searchVideos(`${selectedCategory} India`, 100, 1);
+          const list = await YouTubeService.searchVideos(`${selectedCategory} India`, 10, 1);
           if (isCurrent) setPopularVideos(list);
         }
       } catch (e) {
@@ -80,9 +80,9 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onToast }) => {
       const nextPage = page + 1;
       let nextBatch: Video[] = [];
       if (selectedCategory === 'All') {
-        nextBatch = await YouTubeService.getPopularVideos(30, nextPage);
+        nextBatch = await YouTubeService.getPopularVideos(10, nextPage);
       } else {
-        nextBatch = await YouTubeService.searchVideos(`${selectedCategory} India`, 30, nextPage);
+        nextBatch = await YouTubeService.searchVideos(`${selectedCategory} India`, 10, nextPage);
       }
 
       if (nextBatch.length === 0) {

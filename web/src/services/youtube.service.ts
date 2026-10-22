@@ -143,12 +143,9 @@ export class YouTubeService {
   }
 
   /**
-   * Fetch popular / trending videos:
-   * 1. Official YouTube API (if key is set)
-   * 2. High-speed parallel race across public Invidious instances (Region IN)
-   * 3. Fallback dataset
+   * Fetch popular / trending videos (10 items per batch for instant response and smooth thumbnails):
    */
-  static async getPopularVideos(targetCount = 100, page = 1): Promise<Video[]> {
+  static async getPopularVideos(targetCount = 10, page = 1): Promise<Video[]> {
     const apiKey = this.getApiKey();
 
     // 1. Official API Key if provided
@@ -163,7 +160,7 @@ export class YouTubeService {
               id: item.id,
               title: item.snippet.title,
               description: item.snippet.description,
-              thumbnailUrl: item.snippet.thumbnails?.high?.url || item.snippet.thumbnails?.medium?.url || `https://img.youtube.com/vi/${item.id}/hqdefault.jpg`,
+              thumbnailUrl: `https://i.ytimg.com/vi/${item.id}/hqdefault.jpg`,
               channelTitle: item.snippet.channelTitle,
               publishedAt: item.snippet.publishedAt,
               duration: formatISO8601Duration(item.contentDetails?.duration),
@@ -177,20 +174,20 @@ export class YouTubeService {
       }
     }
 
-    // 2. Query live public instances with parallel aggregation for real-time trending videos
+    // 2. Query live public instances for real-time trending videos
     const liveTrending = await this.getPopularFromLiveInstances(targetCount, page);
     if (liveTrending.length > 0) {
       return liveTrending;
     }
 
     // 3. Fallback dataset
-    return GENERAL_DEMO_YOUTUBE_VIDEOS;
+    return GENERAL_DEMO_YOUTUBE_VIDEOS.slice(0, targetCount);
   }
 
   /**
-   * Search YouTube for ANY user query with multi-page support (100+ initial results + infinite scrolling):
+   * Search YouTube for ANY user query (10 items per batch for fast, smooth pagination):
    */
-  static async searchVideos(query: string, targetCount = 100, page = 1): Promise<Video[]> {
+  static async searchVideos(query: string, targetCount = 10, page = 1): Promise<Video[]> {
     const trimmed = query.trim();
     if (!trimmed) return this.getPopularVideos(targetCount, page);
 
@@ -217,7 +214,7 @@ export class YouTubeService {
                 id: vId,
                 title: item.snippet.title,
                 description: item.snippet.description,
-                thumbnailUrl: item.snippet.thumbnails?.high?.url || item.snippet.thumbnails?.medium?.url || `https://img.youtube.com/vi/${vId}/hqdefault.jpg`,
+                thumbnailUrl: `https://i.ytimg.com/vi/${vId}/hqdefault.jpg`,
                 channelTitle: item.snippet.channelTitle,
                 publishedAt: item.snippet.publishedAt,
                 duration: details.duration ? formatISO8601Duration(details.duration) : '10:00',
@@ -231,7 +228,7 @@ export class YouTubeService {
       }
     }
 
-    // 2. Query Live Public Invidious Engine with parallel multi-page aggregation
+    // 2. Query Live Public Invidious Engine with 10-item pagination
     const liveResults = await this.searchFromLiveInstances(trimmed, targetCount, page);
     if (liveResults.length > 0) {
       return liveResults;
@@ -242,12 +239,12 @@ export class YouTubeService {
   }
 
   /**
-   * Separate Dedicated Engine for Related Songs / Videos when a video is playing:
+   * Separate Dedicated Engine for Related Songs / Videos when a video is playing (10 items per batch):
    * Extracts clean keywords, artist/channel name, and fetches separate tailored recommendations.
    */
   static async getRelatedVideos(
     video: { id?: string; title: string; channelTitle?: string },
-    targetCount = 30,
+    targetCount = 10,
     page = 1
   ): Promise<Video[]> {
     if (!video || !video.title) return [];
@@ -387,57 +384,27 @@ export class YouTubeService {
 
   private static async searchFromLiveInstances(
     query: string,
-    targetCount = 100,
+    targetCount = 10,
     page = 1
   ): Promise<Video[]> {
-    const mapItem = (item: any): Video => ({
-      id: item.videoId,
-      title: item.title,
-      description: item.description || '',
-      thumbnailUrl:
-        item.videoThumbnails?.find((t: any) => t.quality === 'medium' || t.quality === 'high')?.url ||
-        `https://img.youtube.com/vi/${item.videoId}/hqdefault.jpg`,
-      channelTitle: item.author || 'YouTube Creator',
-      publishedAt:
-        item.publishedText ||
-        (item.published ? new Date(item.published * 1000).toISOString() : new Date().toISOString()),
-      duration: formatDurationSeconds(item.lengthSeconds),
-      viewCount: item.viewCountText || formatViewCount(item.viewCount),
-      category: 'Search Result',
-    });
+    const mapItem = (item: any): Video | null => {
+      const vId = item.videoId || item.id;
+      if (!vId || !item.title) return null;
+      return {
+        id: vId,
+        title: item.title,
+        description: item.description || '',
+        thumbnailUrl: `https://i.ytimg.com/vi/${vId}/hqdefault.jpg`,
+        channelTitle: item.author || 'YouTube Creator',
+        publishedAt:
+          item.publishedText ||
+          (item.published ? new Date(item.published * 1000).toISOString() : new Date().toISOString()),
+        duration: formatDurationSeconds(item.lengthSeconds),
+        viewCount: item.viewCountText || formatViewCount(item.viewCount),
+        category: 'Search Result',
+      };
+    };
 
-    // If initial load requested 100 items, fetch pages 1..5 in parallel
-    if (page === 1 && targetCount >= 50) {
-      const tasks = [
-        this.fetchFromInstances(`/api/v1/search?q=${encodeURIComponent(query)}&type=video&page=1`),
-        this.fetchFromInstances(`/api/v1/search?q=${encodeURIComponent(query)}&type=video&page=2`),
-        this.fetchFromInstances(`/api/v1/search?q=${encodeURIComponent(query)}&type=video&page=3`),
-        this.fetchFromInstances(`/api/v1/search?q=${encodeURIComponent(query + ' latest')}&type=video&page=1`),
-        this.fetchFromInstances(`/api/v1/search?q=${encodeURIComponent(query + ' trending')}&type=video&page=1`),
-        this.fetchFromInstances(`/api/v1/search?q=${encodeURIComponent(query + ' popular')}&type=video&page=1`),
-      ];
-
-      const responses = await Promise.allSettled(tasks);
-      const seen = new Set<string>();
-      const combined: Video[] = [];
-
-      for (const r of responses) {
-        if (r.status === 'fulfilled' && Array.isArray(r.value)) {
-          for (const item of r.value) {
-            if (item && item.videoId && !seen.has(item.videoId)) {
-              seen.add(item.videoId);
-              combined.push(mapItem(item));
-              if (combined.length >= targetCount) break;
-            }
-          }
-        }
-        if (combined.length >= targetCount) break;
-      }
-
-      if (combined.length > 0) return combined;
-    }
-
-    // Single page fetch (for infinite scroll or page > 1)
     const singleData = await this.fetchFromInstances(
       `/api/v1/search?q=${encodeURIComponent(query)}&type=video&page=${page}`
     );
@@ -445,83 +412,54 @@ export class YouTubeService {
     const seen = new Set<string>();
     const videos: Video[] = [];
     for (const item of singleData) {
-      if (item && item.videoId && !seen.has(item.videoId)) {
-        seen.add(item.videoId);
-        videos.push(mapItem(item));
+      const mapped = mapItem(item);
+      if (mapped && !seen.has(mapped.id)) {
+        seen.add(mapped.id);
+        videos.push(mapped);
+        if (videos.length >= targetCount) break;
       }
     }
     return videos;
   }
 
   private static async getPopularFromLiveInstances(
-    targetCount = 100,
+    targetCount = 10,
     page = 1
   ): Promise<Video[]> {
-    const mapItem = (item: any): Video => ({
-      id: item.videoId,
-      title: item.title,
-      description: item.description || '',
-      thumbnailUrl:
-        item.videoThumbnails?.find((t: any) => t.quality === 'medium' || t.quality === 'high')?.url ||
-        `https://img.youtube.com/vi/${item.videoId}/hqdefault.jpg`,
-      channelTitle: item.author || 'YouTube Creator',
-      publishedAt:
-        item.publishedText ||
-        (item.published ? new Date(item.published * 1000).toISOString() : new Date().toISOString()),
-      duration: formatDurationSeconds(item.lengthSeconds),
-      viewCount: item.viewCountText || formatViewCount(item.viewCount),
-      category: 'Trending',
-    });
+    const mapItem = (item: any): Video | null => {
+      const vId = item.videoId || item.id;
+      if (!vId || !item.title) return null;
+      return {
+        id: vId,
+        title: item.title,
+        description: item.description || '',
+        thumbnailUrl: `https://i.ytimg.com/vi/${vId}/hqdefault.jpg`,
+        channelTitle: item.author || 'YouTube Creator',
+        publishedAt:
+          item.publishedText ||
+          (item.published ? new Date(item.published * 1000).toISOString() : new Date().toISOString()),
+        duration: formatDurationSeconds(item.lengthSeconds),
+        viewCount: item.viewCountText || formatViewCount(item.viewCount),
+        category: 'Trending',
+      };
+    };
 
-    // If initial load requested 100 items, fetch trending IN + diverse categories in parallel
-    if (page === 1 && targetCount >= 50) {
-      const tasks = [
-        this.fetchFromInstances('/api/v1/trending?region=IN'),
-        this.fetchFromInstances('/api/v1/search?q=trending+videos+india&type=video&page=1'),
-        this.fetchFromInstances('/api/v1/search?q=trending+videos+india&type=video&page=2'),
-        this.fetchFromInstances('/api/v1/search?q=top+music+songs+india&type=video&page=1'),
-        this.fetchFromInstances('/api/v1/search?q=popular+entertainment+india&type=video&page=1'),
-        this.fetchFromInstances('/api/v1/search?q=viral+comedy+india&type=video&page=1'),
-        this.fetchFromInstances('/api/v1/search?q=superhit+hindi+songs&type=video&page=1'),
-      ];
+    // Page 1 loads region IN trending; subsequent pages load general trending via search page
+    const endpoint =
+      page === 1
+        ? '/api/v1/trending?region=IN'
+        : `/api/v1/search?q=trending+videos+india&type=video&page=${page}`;
 
-      const responses = await Promise.allSettled(tasks);
-      const seen = new Set<string>();
-      const combined: Video[] = [];
-
-      for (const r of responses) {
-        if (r.status === 'fulfilled' && Array.isArray(r.value)) {
-          for (const item of r.value) {
-            if (item && item.videoId && !seen.has(item.videoId)) {
-              seen.add(item.videoId);
-              combined.push(mapItem(item));
-              if (combined.length >= targetCount) break;
-            }
-          }
-        }
-        if (combined.length >= targetCount) break;
-      }
-
-      if (combined.length > 0) return combined;
-    }
-
-    // Page > 1 for infinite scroll on Home page
-    const pageTasks = [
-      this.fetchFromInstances(`/api/v1/search?q=trending+videos+india&type=video&page=${page}`),
-      this.fetchFromInstances(`/api/v1/search?q=top+music+songs+india&type=video&page=${page}`),
-    ];
-    const responses = await Promise.allSettled(pageTasks);
+    const rawData = await this.fetchFromInstances(endpoint);
     const seen = new Set<string>();
     const videos: Video[] = [];
 
-    for (const r of responses) {
-      if (r.status === 'fulfilled' && Array.isArray(r.value)) {
-        for (const item of r.value) {
-          if (item && item.videoId && !seen.has(item.videoId)) {
-            seen.add(item.videoId);
-            videos.push(mapItem(item));
-          }
-        }
+    for (const item of rawData) {
+      const mapped = mapItem(item);
+      if (mapped && !seen.has(mapped.id)) {
+        seen.add(mapped.id);
+        videos.push(mapped);
+        if (videos.length >= targetCount) break;
       }
     }
     return videos;

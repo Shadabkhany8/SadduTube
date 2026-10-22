@@ -61,7 +61,7 @@ export const VideoScreen: React.FC<VideoScreenProps> = ({ onToast }) => {
         addToHistory(details);
 
         // Fetch tailored related songs/videos specifically for this video
-        const related = await YouTubeService.getRelatedVideos(details, 30, 1);
+        const related = await YouTubeService.getRelatedVideos(details, 10, 1);
         setRelatedVideos(related.filter((v) => v.id !== videoId));
       } catch (err) {
         console.warn('Failed to load video details:', err);
@@ -78,7 +78,7 @@ export const VideoScreen: React.FC<VideoScreenProps> = ({ onToast }) => {
     setLoadingMoreRelated(true);
     try {
       const nextPage = relatedPage + 1;
-      const more = await YouTubeService.getRelatedVideos(video, 25, nextPage);
+      const more = await YouTubeService.getRelatedVideos(video, 10, nextPage);
       const filtered = more.filter((v) => v.id !== video.id);
       setRelatedVideos((prev) => deduplicateVideos(prev, filtered));
       setRelatedPage(nextPage);

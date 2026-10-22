@@ -73,7 +73,7 @@ export const YouTubeBrowserScreen: React.FC<YouTubeBrowserScreenProps> = ({ onTo
     setHasMore(true);
     setLoading(true);
     try {
-      const vids = await YouTubeService.getPopularVideos(100, 1);
+      const vids = await YouTubeService.getPopularVideos(10, 1);
       setResults(vids);
     } catch {
       // ignore
@@ -96,7 +96,7 @@ export const YouTubeBrowserScreen: React.FC<YouTubeBrowserScreenProps> = ({ onTo
     setHasMore(true);
     setActiveCategory(`Search: "${trimmed}"`);
     try {
-      const vids = await YouTubeService.searchVideos(trimmed, 100, 1);
+      const vids = await YouTubeService.searchVideos(trimmed, 10, 1);
       setResults(vids);
     } catch (err) {
       console.warn('Search failed:', err);
@@ -112,9 +112,9 @@ export const YouTubeBrowserScreen: React.FC<YouTubeBrowserScreenProps> = ({ onTo
       const nextPage = page + 1;
       let nextBatch: Video[] = [];
       if (currentSearch) {
-        nextBatch = await YouTubeService.searchVideos(currentSearch, 30, nextPage);
+        nextBatch = await YouTubeService.searchVideos(currentSearch, 10, nextPage);
       } else {
-        nextBatch = await YouTubeService.getPopularVideos(30, nextPage);
+        nextBatch = await YouTubeService.getPopularVideos(10, nextPage);
       }
 
       if (nextBatch.length === 0) {

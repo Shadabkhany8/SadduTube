@@ -25,6 +25,31 @@ export const VideoCard: React.FC<VideoCardProps> = ({
 
   const bookmarked = isBookmarked(video.id);
 
+  // Directly use official Google YouTube CDN for 100% reliable image loading
+  const defaultCdnThumb = `https://i.ytimg.com/vi/${video.id}/hqdefault.jpg`;
+  const [thumbSrc, setThumbSrc] = React.useState<string>(() => {
+    if (!video.thumbnailUrl || video.thumbnailUrl.includes('invidious')) {
+      return defaultCdnThumb;
+    }
+    return video.thumbnailUrl;
+  });
+
+  React.useEffect(() => {
+    if (!video.thumbnailUrl || video.thumbnailUrl.includes('invidious')) {
+      setThumbSrc(`https://i.ytimg.com/vi/${video.id}/hqdefault.jpg`);
+    } else {
+      setThumbSrc(video.thumbnailUrl);
+    }
+  }, [video.id, video.thumbnailUrl]);
+
+  const handleThumbError = () => {
+    if (thumbSrc.includes('hqdefault.jpg')) {
+      setThumbSrc(`https://img.youtube.com/vi/${video.id}/mqdefault.jpg`);
+    } else if (thumbSrc.includes('mqdefault.jpg')) {
+      setThumbSrc(`https://img.youtube.com/vi/${video.id}/default.jpg`);
+    }
+  };
+
   const handleOpenVideo = () => {
     navigate(`/video/${video.id}`);
   };
@@ -75,8 +100,10 @@ export const VideoCard: React.FC<VideoCardProps> = ({
           }}
         >
           <img
-            src={video.thumbnailUrl}
+            src={thumbSrc}
             alt={video.title}
+            onError={handleThumbError}
+            referrerPolicy="no-referrer"
             style={{ width: '100%', height: '100%', objectFit: 'cover' }}
             loading="lazy"
           />
@@ -224,8 +251,10 @@ export const VideoCard: React.FC<VideoCardProps> = ({
         }}
       >
         <img
-          src={video.thumbnailUrl}
+          src={thumbSrc}
           alt={video.title}
+          onError={handleThumbError}
+          referrerPolicy="no-referrer"
           style={{ width: '100%', height: '100%', objectFit: 'cover' }}
           loading="lazy"
         />
