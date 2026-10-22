@@ -42,19 +42,28 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onToast }) => {
   );
 
   useEffect(() => {
+    let isCurrent = true;
     const loadVideos = async () => {
       setLoadingVideos(true);
       try {
-        const list = await YouTubeService.getPopularVideos(12);
-        setPopularVideos(list);
+        if (selectedCategory === 'All') {
+          const list = await YouTubeService.getPopularVideos(16);
+          if (isCurrent) setPopularVideos(list);
+        } else {
+          const list = await YouTubeService.searchVideos(`${selectedCategory} India`, 16);
+          if (isCurrent) setPopularVideos(list);
+        }
       } catch (e) {
-        console.warn('Failed loading popular videos:', e);
+        console.warn('Failed loading videos for category:', selectedCategory, e);
       } finally {
-        setLoadingVideos(false);
+        if (isCurrent) setLoadingVideos(false);
       }
     };
     loadVideos();
-  }, []);
+    return () => {
+      isCurrent = false;
+    };
+  }, [selectedCategory]);
 
   const handleSearchSubmit = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -66,17 +75,11 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onToast }) => {
     if (videoId) {
       navigate(`/video/${videoId}`);
     } else {
-      const url = normalizeYouTubeUrl(trimmed);
-      navigate(`/youtube?url=${encodeURIComponent(url)}`);
+      navigate(`/youtube?q=${encodeURIComponent(trimmed)}`);
     }
   };
 
   const categories = ['All', 'Music', 'Gaming', 'Technology', 'Travel & Vlogs', 'Cooking & Food', 'Sports'];
-
-  const filteredVideos = popularVideos.filter((v) => {
-    if (selectedCategory === 'All') return true;
-    return v.category?.toLowerCase() === selectedCategory.toLowerCase();
-  });
 
   return (
     <div className="home-screen-container" style={{ padding: '1.25rem', maxWidth: 1200, margin: '0 auto', width: '100%', boxSizing: 'border-box' }}>
@@ -470,7 +473,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onToast }) => {
               gap: '1.25rem',
             }}
           >
-            {filteredVideos.map((video) => (
+            {popularVideos.map((video) => (
               <VideoCard
                 key={video.id}
                 video={video}

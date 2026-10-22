@@ -5,6 +5,7 @@ import { useAppData } from '../context/AppDataContext';
 import { SadduTubeBrand } from '../components/SadduTubeBrand';
 import { ConfirmModal } from '../components/ConfirmModal';
 import { ThemeMode } from '../types';
+import { YouTubeService } from '../services/youtube.service';
 import {
   IoArrowBack,
   IoShieldCheckmark,
@@ -22,6 +23,9 @@ import {
   IoShieldCheckmarkOutline,
   IoChevronForward,
   IoClose,
+  IoLogoYoutube,
+  IoKeyOutline,
+  IoGlobeOutline,
 } from 'react-icons/io5';
 
 interface SettingsScreenProps {
@@ -34,6 +38,8 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ onToast }) => {
   const navigate = useNavigate();
 
   const [activeModal, setActiveModal] = useState<'history' | 'bookmarks' | 'all' | 'about' | 'privacy' | null>(null);
+  const [apiKeyInput, setApiKeyInput] = useState(YouTubeService.getApiKey() || '');
+  const [isKeyConfigured, setIsKeyConfigured] = useState(YouTubeService.isApiKeyConfigured());
 
   const validVideosCount = history.filter(
     (item) => Boolean(item.videoId && item.videoId.length === 11 && item.title !== 'YouTube')
@@ -343,6 +349,161 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ onToast }) => {
                 </button>
               );
             })}
+          </div>
+        </section>
+
+        {/* YouTube Engine & API Key Configuration */}
+        <section>
+          <span
+            style={{
+              fontSize: '0.75rem',
+              fontWeight: 700,
+              textTransform: 'uppercase',
+              letterSpacing: '0.06em',
+              color: colors.textSecondary,
+              display: 'block',
+              marginBottom: '0.5rem',
+              paddingLeft: '0.35rem',
+            }}
+          >
+            YOUTUBE SEARCH & CONTENT ENGINE
+          </span>
+
+          <div
+            style={{
+              backgroundColor: colors.card,
+              border: `1px solid ${colors.cardBorder}`,
+              borderRadius: 18,
+              padding: '1.25rem',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.85rem', marginBottom: '1rem' }}>
+              <div
+                style={{
+                  width: 40,
+                  height: 40,
+                  borderRadius: 12,
+                  backgroundColor: 'rgba(255, 30, 56, 0.12)',
+                  color: colors.primary,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                }}
+              >
+                <IoLogoYoutube size={22} />
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', flexWrap: 'wrap', marginBottom: '0.25rem' }}>
+                  <h4 style={{ fontSize: '0.95rem', fontWeight: 700, color: colors.textPrimary, margin: 0 }}>
+                    Real-Time YouTube Engine
+                  </h4>
+                  <span
+                    style={{
+                      fontSize: '0.7rem',
+                      fontWeight: 800,
+                      backgroundColor: isKeyConfigured ? 'rgba(48, 209, 88, 0.15)' : 'rgba(0, 122, 255, 0.15)',
+                      color: isKeyConfigured ? colors.success : '#007AFF',
+                      padding: '0.2rem 0.55rem',
+                      borderRadius: 10,
+                    }}
+                  >
+                    {isKeyConfigured ? 'GOOGLE API KEY ACTIVE' : 'LIVE PUBLIC ENGINE ACTIVE'}
+                  </span>
+                </div>
+                <p style={{ fontSize: '0.8rem', color: colors.textSecondary, margin: 0, lineHeight: 1.45 }}>
+                  {isKeyConfigured
+                    ? 'Using your custom YouTube Data API v3 quota for live search and video feeds.'
+                    : 'SadduTube uses automated multi-instance privacy proxies for 100% live YouTube searches & Indian trending feeds without requiring any API key.'}
+                </p>
+              </div>
+            </div>
+
+            <div
+              style={{
+                backgroundColor: colors.surfaceVariant,
+                borderRadius: 14,
+                padding: '0.85rem',
+                border: `1px solid ${colors.border}`,
+              }}
+            >
+              <label
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.4rem',
+                  fontSize: '0.78rem',
+                  fontWeight: 700,
+                  color: colors.textSecondary,
+                  marginBottom: '0.45rem',
+                }}
+              >
+                <IoKeyOutline size={15} />
+                CUSTOM YOUTUBE DATA API V3 KEY (OPTIONAL)
+              </label>
+
+              <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                <input
+                  type="password"
+                  placeholder="Paste AIzaSy... API key here"
+                  value={apiKeyInput}
+                  onChange={(e) => setApiKeyInput(e.target.value)}
+                  style={{
+                    flex: 1,
+                    minWidth: 200,
+                    backgroundColor: colors.card,
+                    border: `1px solid ${colors.border}`,
+                    borderRadius: 10,
+                    padding: '0.55rem 0.75rem',
+                    color: colors.textPrimary,
+                    fontSize: '0.85rem',
+                    outline: 'none',
+                  }}
+                />
+                <button
+                  onClick={() => {
+                    YouTubeService.setCustomApiKey(apiKeyInput);
+                    const configured = YouTubeService.isApiKeyConfigured();
+                    setIsKeyConfigured(configured);
+                    onToast(configured ? 'Custom YouTube API key activated!' : 'API key cleared. Default live engine active.');
+                  }}
+                  style={{
+                    backgroundColor: colors.primary,
+                    color: '#FFFFFF',
+                    border: 'none',
+                    borderRadius: 10,
+                    padding: '0.55rem 1rem',
+                    fontWeight: 700,
+                    fontSize: '0.82rem',
+                    cursor: 'pointer',
+                  }}
+                >
+                  Save
+                </button>
+                {isKeyConfigured && (
+                  <button
+                    onClick={() => {
+                      YouTubeService.setCustomApiKey('');
+                      setApiKeyInput('');
+                      setIsKeyConfigured(false);
+                      onToast('Switched to default live public engine.');
+                    }}
+                    style={{
+                      backgroundColor: 'transparent',
+                      color: colors.danger,
+                      border: `1px solid ${colors.danger}`,
+                      borderRadius: 10,
+                      padding: '0.55rem 0.85rem',
+                      fontWeight: 600,
+                      fontSize: '0.82rem',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+            </div>
           </div>
         </section>
 

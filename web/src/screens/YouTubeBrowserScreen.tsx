@@ -42,11 +42,21 @@ export const YouTubeBrowserScreen: React.FC<YouTubeBrowserScreenProps> = ({ onTo
         navigate(`/video/${vId}`, { replace: true });
         return;
       }
+      try {
+        const parsed = new URL(initialUrl);
+        const queryFromUrl = parsed.searchParams.get('search_query') || parsed.searchParams.get('q');
+        if (queryFromUrl) {
+          setQueryInput(queryFromUrl);
+          handleSearchQuery(queryFromUrl);
+          return;
+        }
+      } catch {}
     }
 
     if (initialQuery) {
+      setQueryInput(initialQuery);
       handleSearchQuery(initialQuery);
-    } else {
+    } else if (!initialUrl) {
       loadCategoryFeed('Trending');
     }
   }, [initialUrl, initialQuery, navigate]);
@@ -55,7 +65,7 @@ export const YouTubeBrowserScreen: React.FC<YouTubeBrowserScreenProps> = ({ onTo
     setActiveCategory(category);
     setLoading(true);
     try {
-      const vids = await YouTubeService.getPopularVideos(15);
+      const vids = await YouTubeService.getPopularVideos(20);
       setResults(vids);
     } catch {
       // ignore
@@ -65,19 +75,20 @@ export const YouTubeBrowserScreen: React.FC<YouTubeBrowserScreenProps> = ({ onTo
   };
 
   const handleSearchQuery = async (searchStr: string) => {
-    if (!searchStr.trim()) return;
+    const trimmed = searchStr.trim();
+    if (!trimmed) return;
+    const vId = extractYouTubeVideoId(trimmed);
+    if (vId) {
+      navigate(`/video/${vId}`);
+      return;
+    }
     setLoading(true);
-    setActiveCategory(`Search: "${searchStr}"`);
+    setActiveCategory(`Search: "${trimmed}"`);
     try {
-      const vId = extractYouTubeVideoId(searchStr);
-      if (vId) {
-        navigate(`/video/${vId}`);
-        return;
-      }
-      const vids = await YouTubeService.searchVideos(searchStr, 15);
+      const vids = await YouTubeService.searchVideos(trimmed, 20);
       setResults(vids);
-    } catch {
-      // ignore
+    } catch (err) {
+      console.warn('Search failed:', err);
     } finally {
       setLoading(false);
     }
@@ -87,6 +98,25 @@ export const YouTubeBrowserScreen: React.FC<YouTubeBrowserScreenProps> = ({ onTo
     e.preventDefault();
     if (!queryInput.trim()) return;
     handleSearchQuery(queryInput);
+  };
+
+  const handleQuickJump = (label: string) => {
+    if (label === 'Trending') {
+      setQueryInput('');
+      loadCategoryFeed('Trending');
+    } else if (label === 'Library') {
+      navigate('/bookmarks');
+    } else {
+      const queryMap: Record<string, string> = {
+        Music: 'Trending Music',
+        Gaming: 'Trending Gaming',
+        Tech: 'Latest Tech & Gadgets',
+        News: 'Live News',
+      };
+      const query = queryMap[label] || label;
+      setQueryInput(query);
+      handleSearchQuery(query);
+    }
   };
 
   const quickJumpButtons = [
@@ -190,10 +220,7 @@ export const YouTubeBrowserScreen: React.FC<YouTubeBrowserScreenProps> = ({ onTo
         {quickJumpButtons.map((btn) => (
           <button
             key={btn.label}
-            onClick={() => {
-              setQueryInput(btn.label);
-              handleSearchQuery(btn.label);
-            }}
+            onClick={() => handleQuickJump(btn.label)}
             style={{
               display: 'flex',
               alignItems: 'center',
