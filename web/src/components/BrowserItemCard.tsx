@@ -34,7 +34,16 @@ export const BrowserItemCard: React.FC<BrowserItemCardProps> = ({
 
   const handlePress = () => {
     if (videoId) {
-      navigate(`/video/${videoId}`);
+      navigate(`/video/${videoId}`, {
+        state: {
+          video: {
+            id: videoId,
+            title: title || `YouTube Video (${videoId})`,
+            thumbnailUrl: thumbnailUrl || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+            channelTitle: '',
+          },
+        },
+      });
     } else {
       navigate(`/youtube?url=${encodeURIComponent(url)}`);
     }

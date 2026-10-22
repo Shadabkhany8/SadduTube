@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useTheme } from '../context/ThemeContext';
 import { useAppData } from '../context/AppDataContext';
 import { VideoPlayer } from '../components/VideoPlayer';
@@ -28,12 +28,29 @@ interface VideoScreenProps {
 export const VideoScreen: React.FC<VideoScreenProps> = ({ onToast }) => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
   const { colors } = useTheme();
   const { isBookmarked, toggleBookmark, addSavedTab, addToHistory } = useAppData();
 
-  const [video, setVideo] = useState<Video | null>(null);
+  const videoId = id || '';
+  const passedVideo = (location.state as any)?.video as Video | undefined;
+
+  const [video, setVideo] = useState<Video | null>(() => {
+    if (
+      passedVideo &&
+      passedVideo.id === videoId &&
+      passedVideo.title &&
+      !passedVideo.title.startsWith('YouTube Video (')
+    ) {
+      return passedVideo;
+    }
+    return null;
+  });
+
   const [relatedVideos, setRelatedVideos] = useState<Video[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(
+    () => !passedVideo || passedVideo.id !== videoId || !passedVideo.title
+  );
   const [loadingMoreRelated, setLoadingMoreRelated] = useState(false);
   const [relatedPage, setRelatedPage] = useState(1);
   const [hasMoreRelated, setHasMoreRelated] = useState(true);
@@ -41,7 +58,6 @@ export const VideoScreen: React.FC<VideoScreenProps> = ({ onToast }) => {
   const [showSaveTabModal, setShowSaveTabModal] = useState(false);
   const [showDownloadModal, setShowDownloadModal] = useState(false);
 
-  const videoId = id || '';
   const bookmarked = videoId ? isBookmarked(videoId) : false;
 
   useEffect(() => {
@@ -52,7 +68,16 @@ export const VideoScreen: React.FC<VideoScreenProps> = ({ onToast }) => {
     setHasMoreRelated(true);
 
     const loadDetails = async () => {
-      setLoading(true);
+      const hasInitial =
+        passedVideo &&
+        passedVideo.id === videoId &&
+        passedVideo.title &&
+        !passedVideo.title.startsWith('YouTube Video (');
+
+      if (!hasInitial) {
+        setLoading(true);
+      }
+
       try {
         const details = await YouTubeService.getVideoById(videoId);
         setVideo(details);

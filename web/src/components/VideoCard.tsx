@@ -51,7 +51,7 @@ export const VideoCard: React.FC<VideoCardProps> = ({
   };
 
   const handleOpenVideo = () => {
-    navigate(`/video/${video.id}`);
+    navigate(`/video/${video.id}`, { state: { video } });
   };
 
   const handleToggleBookmark = (e: React.MouseEvent) => {

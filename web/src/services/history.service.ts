@@ -138,4 +138,33 @@ export class HistoryService {
   static clearHistory(): boolean {
     return StorageService.setItem(STORAGE_KEYS.HISTORY, []);
   }
+
+  /**
+   * Automatically resolves any placeholder history titles ("YouTube Video (...)")
+   * to their real song / video title in the background via YouTube oEmbed.
+   */
+  static syncMissingTitles(): void {
+    if (typeof window === 'undefined') return;
+    const history = this.getHistory();
+    const needsFix = history.filter(
+      (item) => item.title.startsWith('YouTube Video (') || !item.channelTitle
+    );
+    if (needsFix.length === 0) return;
+
+    needsFix.slice(0, 6).forEach(async (item) => {
+      const vid = item.videoId || extractYouTubeVideoId(item.url);
+      if (!vid) return;
+      try {
+        const res = await fetch(
+          `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${vid}&format=json`
+        );
+        if (res.ok) {
+          const data = await res.json();
+          if (data && data.title) {
+            HistoryService.updateHistoryTitle(item.url, data.title, data.author_name);
+          }
+        }
+      } catch {}
+    });
+  }
 }

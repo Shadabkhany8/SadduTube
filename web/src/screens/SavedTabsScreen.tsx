@@ -30,7 +30,16 @@ export const SavedTabsScreen: React.FC<SavedTabsScreenProps> = ({ onToast }) => 
 
   const handleOpenTab = (tab: any) => {
     if (tab.videoId) {
-      navigate(`/video/${tab.videoId}`);
+      navigate(`/video/${tab.videoId}`, {
+        state: {
+          video: {
+            id: tab.videoId,
+            title: tab.title,
+            thumbnailUrl: tab.thumbnailUrl || `https://i.ytimg.com/vi/${tab.videoId}/hqdefault.jpg`,
+            channelTitle: '',
+          },
+        },
+      });
     } else if (tab.url) {
       navigate(`/youtube?url=${encodeURIComponent(tab.url)}`);
     }

@@ -19,6 +19,7 @@ import {
   IoPlayCircleOutline,
   IoBookmarkOutline,
   IoFlameOutline,
+  IoSparklesOutline,
 } from 'react-icons/io5';
 
 import { deduplicateVideos } from '../utils/formatters';
@@ -46,6 +47,8 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onToast }) => {
     (item) => Boolean(item.videoId && item.videoId.length === 11 && item.title !== 'YouTube')
   );
 
+  const latestHistoryId = validHistory[0]?.videoId || '';
+
   useEffect(() => {
     let isCurrent = true;
     setPage(1);
@@ -55,7 +58,10 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onToast }) => {
       setLoadingVideos(true);
       try {
         if (selectedCategory === 'All') {
-          const list = await YouTubeService.getPopularVideos(10, 1);
+          const list =
+            validHistory.length > 0
+              ? await YouTubeService.getHistoryRecommendations(validHistory, 10, 1)
+              : await YouTubeService.getPopularVideos(10, 1);
           if (isCurrent) setPopularVideos(list);
         } else {
           const list = await YouTubeService.searchVideos(`${selectedCategory} India`, 10, 1);
@@ -71,7 +77,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onToast }) => {
     return () => {
       isCurrent = false;
     };
-  }, [selectedCategory]);
+  }, [selectedCategory, latestHistoryId]);
 
   const handleLoadMore = React.useCallback(async () => {
     if (loadingMore || loadingVideos || !hasMore) return;
@@ -80,7 +86,10 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onToast }) => {
       const nextPage = page + 1;
       let nextBatch: Video[] = [];
       if (selectedCategory === 'All') {
-        nextBatch = await YouTubeService.getPopularVideos(10, nextPage);
+        nextBatch =
+          validHistory.length > 0
+            ? await YouTubeService.getHistoryRecommendations(validHistory, 10, nextPage)
+            : await YouTubeService.getPopularVideos(10, nextPage);
       } else {
         nextBatch = await YouTubeService.searchVideos(`${selectedCategory} India`, 10, nextPage);
       }
@@ -96,7 +105,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onToast }) => {
     } finally {
       setLoadingMore(false);
     }
-  }, [loadingMore, loadingVideos, hasMore, page, selectedCategory]);
+  }, [loadingMore, loadingVideos, hasMore, page, selectedCategory, validHistory]);
 
   useEffect(() => {
     const onScroll = () => {
@@ -456,13 +465,40 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onToast }) => {
         </section>
       )}
 
-      {/* Trending & Featured Videos Feed */}
+      {/* Trending & Personalized Videos Feed */}
       <section style={{ marginBottom: '2rem' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.85rem' }}>
-          <IoFlameOutline size={22} color={colors.primary} />
-          <h3 style={{ fontSize: '1.2rem', fontWeight: 700, color: colors.textPrimary, margin: 0 }}>
-            Trending & Discover ({popularVideos.length})
-          </h3>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.85rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+            {selectedCategory === 'All' && validHistory.length > 0 ? (
+              <>
+                <IoSparklesOutline size={22} color="#FF9500" />
+                <h3 style={{ fontSize: '1.2rem', fontWeight: 700, color: colors.textPrimary, margin: 0 }}>
+                  Recommended For You ({popularVideos.length})
+                </h3>
+                <span
+                  style={{
+                    fontSize: '0.72rem',
+                    fontWeight: 700,
+                    padding: '3px 9px',
+                    borderRadius: 8,
+                    backgroundColor: 'rgba(255, 149, 0, 0.15)',
+                    color: '#FF9500',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.5px',
+                  }}
+                >
+                  Based on History
+                </span>
+              </>
+            ) : (
+              <>
+                <IoFlameOutline size={22} color={colors.primary} />
+                <h3 style={{ fontSize: '1.2rem', fontWeight: 700, color: colors.textPrimary, margin: 0 }}>
+                  {selectedCategory === 'All' ? 'Trending & Discover' : `${selectedCategory} Videos`} ({popularVideos.length})
+                </h3>
+              </>
+            )}
+          </div>
         </div>
 
         {/* Category Pills */}

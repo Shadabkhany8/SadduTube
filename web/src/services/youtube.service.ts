@@ -1,12 +1,12 @@
 import { Video } from '../types';
-import { formatISO8601Duration, formatViewCount } from '../utils/formatters';
+import { formatISO8601Duration, formatViewCount, deduplicateVideos } from '../utils/formatters';
 
 const YOUTUBE_API_BASE = 'https://www.googleapis.com/youtube/v3';
 
 // High-speed, high-uptime public Invidious instances with open CORS
 const INVIDIOUS_INSTANCES = [
-  'https://invidious.f5.si',
   'https://invidious.flokinet.to',
+  'https://invidious.f5.si',
   'https://invidious.materialio.us',
   'https://iv.melmac.space',
   'https://invidious.projectsegfau.lt',
@@ -239,8 +239,46 @@ export class YouTubeService {
   }
 
   /**
+   * Helper to clean up video/song title and extract targeted search keywords.
+   * Handles Bollywood, Punjabi, Pop, and general songs intelligently.
+   */
+  static extractRelatedKeywords(title: string, author?: string): string {
+    if (!title) return author && author !== 'YouTube Creator' ? `${author} songs` : 'bollywood trending songs';
+
+    // If title is generic fallback
+    if (/^youtube video \(/i.test(title)) {
+      return author && author !== 'YouTube Creator' ? `${author} songs` : 'bollywood trending songs';
+    }
+
+    // Strip out common music video metadata noise
+    const clean = title
+      .replace(/\s*\(?(official|music video|full video|audio|remastered|lyric video|lyrics|4k|hd|visualizer|video song|song)\)?\s*/gi, ' ')
+      .replace(/\[[^\]]*\]/g, ' ')
+      .replace(/\([^)]*\)/g, ' ')
+      .trim();
+
+    // Check for title dividers like "|", "-", ":", "—"
+    const parts = clean.split(/[|:—–-]/).map((p) => p.trim()).filter((p) => p.length > 1);
+
+    if (parts.length >= 2) {
+      // Typically part 0 is Song Name, part 1 is Movie or Main Artist (e.g. "Tauba Tauba" + "Bad Newz")
+      const combined = `${parts[0]} ${parts[1]}`.replace(/\s+/g, ' ').trim();
+      if (combined.length > 3) return combined;
+      return parts[0];
+    } else if (parts.length === 1 && parts[0].length > 2) {
+      const single = parts[0].replace(/\s+/g, ' ').trim();
+      if (author && author !== 'YouTube Creator' && !single.toLowerCase().includes(author.toLowerCase())) {
+        return `${single} ${author}`;
+      }
+      return single;
+    }
+
+    return author && author !== 'YouTube Creator' ? `${author} songs` : clean;
+  }
+
+  /**
    * Separate Dedicated Engine for Related Songs / Videos when a video is playing (10 items per batch):
-   * Extracts clean keywords, artist/channel name, and fetches separate tailored recommendations.
+   * Extracts clean keywords and fetches recommendations strictly related to the current playing track.
    */
   static async getRelatedVideos(
     video: { id?: string; title: string; channelTitle?: string },
@@ -249,44 +287,103 @@ export class YouTubeService {
   ): Promise<Video[]> {
     if (!video || !video.title) return [];
 
-    // Clean title from brackets, parentheses, and noise to get the core song/video theme
-    let cleanTitle = video.title
-      .replace(/\([^)]*\)/g, ' ')
-      .replace(/\[[^\]]*\]/g, ' ')
-      .replace(/[|#@:_—–-]/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim();
-
+    const primaryQuery = this.extractRelatedKeywords(video.title, video.channelTitle);
     const author = (video.channelTitle || '').trim();
-    const primaryTerms = cleanTitle.split(' ').slice(0, 6).join(' ');
 
-    const relatedQuery =
-      author && !primaryTerms.toLowerCase().includes(author.toLowerCase())
-        ? `${author} ${primaryTerms}`
-        : primaryTerms;
-
+    // 1. Try targeted search using extracted keywords (e.g. "Tauba Tauba Bad Newz")
     try {
-      const results = await this.searchFromLiveInstances(relatedQuery, targetCount, page);
+      const results = await this.searchVideos(primaryQuery, targetCount, page);
       const filtered = results.filter((v) => v.id !== video.id);
       if (filtered.length > 0) return filtered;
     } catch (e) {
-      console.warn('Failed to load related videos via targeted search:', e);
+      console.warn('Failed to load related videos with primary query:', primaryQuery, e);
     }
 
-    // Fallback query if very specific query returned few results
-    try {
-      const fallbackQuery = author ? `${author} songs` : `${primaryTerms} song`;
-      const fallbackResults = await this.searchFromLiveInstances(fallbackQuery, targetCount, page);
-      return fallbackResults.filter((v) => v.id !== video.id);
-    } catch {
-      return [];
+    // 2. Try artist / channel query if primary returned few results
+    if (author && author !== 'YouTube Creator') {
+      try {
+        const authorQuery = `${author} songs`;
+        const authorResults = await this.searchVideos(authorQuery, targetCount, page);
+        const filtered = authorResults.filter((v) => v.id !== video.id);
+        if (filtered.length > 0) return filtered;
+      } catch {}
     }
+
+    // 3. Fallback to general music/popular if search produced nothing
+    return (await this.getPopularVideos(targetCount, page)).filter((v) => v.id !== video.id);
+  }
+
+  /**
+   * Personalized Recommendations for Home Feed based on User's Watch History (10 items per batch):
+   * Extracts keywords from recent videos and surfaces content matching the user's taste.
+   */
+  static async getHistoryRecommendations(
+    historyItems: { videoId?: string; title: string; channelTitle?: string }[],
+    targetCount = 10,
+    page = 1
+  ): Promise<Video[]> {
+    // Filter to items that have real titles
+    const validItems = (historyItems || []).filter(
+      (h) => h && h.title && h.title !== 'YouTube' && !h.title.startsWith('YouTube Video (')
+    );
+
+    if (validItems.length === 0) {
+      // No meaningful history yet - fallback to popular videos
+      return this.getPopularVideos(targetCount, page);
+    }
+
+    // Gather unique queries from the most recent watched videos (up to top 5)
+    const queries: string[] = [];
+    const seenQueries = new Set<string>();
+
+    for (const item of validItems.slice(0, 5)) {
+      const q = this.extractRelatedKeywords(item.title, item.channelTitle);
+      if (q && !seenQueries.has(q.toLowerCase())) {
+        seenQueries.add(q.toLowerCase());
+        queries.push(q);
+      }
+    }
+
+    if (queries.length === 0) {
+      return this.getPopularVideos(targetCount, page);
+    }
+
+    // Select query based on page (interleave across watched tracks as user scrolls)
+    const queryIndex = (page - 1) % queries.length;
+    const currentQuery = queries[queryIndex];
+    const subPage = Math.floor((page - 1) / queries.length) + 1;
+
+    try {
+      const results = await this.searchVideos(currentQuery, targetCount, subPage);
+      const watchedIds = new Set(historyItems.map((h) => h.videoId).filter(Boolean));
+      const filtered = results.filter((v) => !watchedIds.has(v.id));
+
+      if (filtered.length >= 6) {
+        return filtered.slice(0, targetCount);
+      }
+
+      // If fewer than 6, blend with next query in the list
+      if (queries.length > 1) {
+        const nextQuery = queries[(queryIndex + 1) % queries.length];
+        const nextResults = await this.searchVideos(nextQuery, targetCount, subPage);
+        const blended = deduplicateVideos(filtered, nextResults.filter((v) => !watchedIds.has(v.id)));
+        if (blended.length > 0) {
+          return blended.slice(0, targetCount);
+        }
+      }
+
+      if (filtered.length > 0) return filtered;
+    } catch (err) {
+      console.warn('Failed to load history-based recommendations:', err);
+    }
+
+    return this.getPopularVideos(targetCount, page);
   }
 
   static async getVideoById(videoId: string): Promise<Video> {
     const apiKey = this.getApiKey();
 
-    // 1. Official YouTube API if key set
+    // 1. Official YouTube API if key configured
     if (this.isApiKeyConfigured() && apiKey) {
       try {
         const url = `${YOUTUBE_API_BASE}/videos?part=snippet,contentDetails,statistics&id=${videoId}&key=${apiKey}`;
@@ -299,7 +396,10 @@ export class YouTubeService {
               id: item.id,
               title: item.snippet.title,
               description: item.snippet.description,
-              thumbnailUrl: item.snippet.thumbnails?.high?.url || item.snippet.thumbnails?.medium?.url || `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`,
+              thumbnailUrl:
+                item.snippet.thumbnails?.high?.url ||
+                item.snippet.thumbnails?.medium?.url ||
+                `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
               channelTitle: item.snippet.channelTitle,
               publishedAt: item.snippet.publishedAt,
               duration: formatISO8601Duration(item.contentDetails?.duration),
@@ -310,7 +410,49 @@ export class YouTubeService {
       } catch {}
     }
 
-    // 2. Live Public Instance details with parallel race
+    // 2. Official YouTube oEmbed (Free, zero-auth, open CORS, 100% reliable for title & channel/artist)
+    try {
+      const oembedUrl = `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`;
+      const res = await fetch(oembedUrl);
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.title) {
+          return {
+            id: videoId,
+            title: data.title,
+            description: `Streamed in HD on SadduTube • Published by ${data.author_name || 'YouTube Creator'}`,
+            thumbnailUrl: data.thumbnail_url || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+            channelTitle: data.author_name || 'YouTube Creator',
+            publishedAt: new Date().toISOString(),
+            duration: '3:45',
+            viewCount: 'Popular',
+          };
+        }
+      }
+    } catch {}
+
+    // 3. noembed.com fallback
+    try {
+      const noembedUrl = `https://noembed.com/embed?url=https://www.youtube.com/watch?v=${videoId}`;
+      const res = await fetch(noembedUrl);
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.title) {
+          return {
+            id: videoId,
+            title: data.title,
+            description: `Streamed in HD on SadduTube • Published by ${data.author_name || 'YouTube Creator'}`,
+            thumbnailUrl: data.thumbnail_url || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+            channelTitle: data.author_name || 'YouTube Creator',
+            publishedAt: new Date().toISOString(),
+            duration: '3:45',
+            viewCount: 'Popular',
+          };
+        }
+      }
+    } catch {}
+
+    // 4. Live Public Instance details with parallel race
     const promises = INVIDIOUS_INSTANCES.slice(0, 3).map(async (inst) => {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 3500);
@@ -324,9 +466,11 @@ export class YouTubeService {
             id: videoId,
             title: item.title,
             description: item.description || '',
-            thumbnailUrl: `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`,
+            thumbnailUrl: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
             channelTitle: item.author || 'YouTube Creator',
-            publishedAt: item.publishedText || (item.published ? new Date(item.published * 1000).toISOString() : new Date().toISOString()),
+            publishedAt:
+              item.publishedText ||
+              (item.published ? new Date(item.published * 1000).toISOString() : new Date().toISOString()),
             duration: formatDurationSeconds(item.lengthSeconds),
             viewCount: item.viewCountText || formatViewCount(item.viewCount),
           };
@@ -350,7 +494,7 @@ export class YouTubeService {
       id: videoId,
       title: `YouTube Video (${videoId})`,
       description: 'Streamed via official YouTube player in SadduTube.',
-      thumbnailUrl: `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`,
+      thumbnailUrl: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
       channelTitle: 'YouTube Creator',
       publishedAt: new Date().toISOString(),
       duration: '10:00',

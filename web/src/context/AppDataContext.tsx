@@ -51,6 +51,9 @@ export const AppDataProvider: React.FC<{ children: React.ReactNode }> = ({ child
       setBookmarks(bm);
       setHistory(hist);
       setSavedTabs(st);
+      setTimeout(() => {
+        HistoryService.syncMissingTitles();
+      }, 1000);
     } catch (error) {
       console.error('Error loading initial app data:', error);
     } finally {
