@@ -406,6 +406,73 @@ export const VideoScreen: React.FC<VideoScreenProps> = ({ onToast }) => {
                 </button>
               </div>
 
+              {/* Members-Only Content & Free Stream Helper */}
+              <div
+                style={{
+                  marginBottom: '1rem',
+                  padding: '0.85rem 1.15rem',
+                  borderRadius: 16,
+                  backgroundColor: colors.card,
+                  border: `1px solid ${colors.cardBorder}`,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: '1rem',
+                  flexWrap: 'wrap',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flex: 1, minWidth: 260 }}>
+                  <div
+                    style={{
+                      width: 36,
+                      height: 36,
+                      borderRadius: 10,
+                      backgroundColor: 'rgba(255, 149, 0, 0.15)',
+                      color: '#FF9500',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: '1.1rem',
+                      flexShrink: 0,
+                    }}
+                  >
+                    🔒
+                  </div>
+                  <div>
+                    <h4 style={{ margin: '0 0 0.15rem', fontSize: '0.88rem', fontWeight: 700, color: colors.textPrimary }}>
+                      Members-Only Content & Ad-Free Shield
+                    </h4>
+                    <p style={{ margin: 0, fontSize: '0.78rem', color: colors.textSecondary, lineHeight: 1.35 }}>
+                      YouTube locks channel memberships with Google account paywall. Use our Ad-Free servers for zero ads, or discover free clips & re-uploads.
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => {
+                    const searchKeywords = YouTubeService.extractRelatedKeywords(video.title, video.channelTitle);
+                    navigate(`/youtube?q=${encodeURIComponent(searchKeywords + ' full video reupload clips')}`);
+                  }}
+                  style={{
+                    padding: '0.45rem 0.95rem',
+                    borderRadius: 12,
+                    backgroundColor: 'rgba(255, 149, 0, 0.15)',
+                    color: '#FF9500',
+                    border: '1px solid rgba(255, 149, 0, 0.3)',
+                    fontSize: '0.82rem',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.45rem',
+                    whiteSpace: 'nowrap',
+                    transition: 'all 0.2s ease',
+                  }}
+                >
+                  🔍 Find Free Clips / Re-uploads
+                </button>
+              </div>
+
               {/* Channel Box */}
               <div
                 style={{

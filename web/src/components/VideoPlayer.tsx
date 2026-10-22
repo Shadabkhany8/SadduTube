@@ -1,8 +1,50 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useTheme } from '../context/ThemeContext';
 import { SponsorBlockService } from '../services/sponsorblock.service';
-import { buildYouTubeEmbedUrl } from '../utils/validation';
-import { IoExpand, IoContract, IoTvOutline, IoSpeedometerOutline, IoFlash } from 'react-icons/io5';
+import {
+  IoExpand,
+  IoContract,
+  IoTvOutline,
+  IoSpeedometerOutline,
+  IoFlash,
+  IoShieldCheckmark,
+  IoSwapHorizontal,
+} from 'react-icons/io5';
+
+export type PlayerServer = 'piped-1' | 'piped-2' | 'direct';
+
+interface ServerOption {
+  id: PlayerServer;
+  label: string;
+  badge: string;
+  isAdFree: boolean;
+  getUrl: (id: string, autoplay: boolean) => string;
+}
+
+const PLAYER_SERVERS: ServerOption[] = [
+  {
+    id: 'piped-1',
+    label: 'Ad-Free 1',
+    badge: '100% Zero Ads',
+    isAdFree: true,
+    getUrl: (id) => `https://piped.video/embed/${id}?autoplay=1`,
+  },
+  {
+    id: 'piped-2',
+    label: 'Ad-Free 2',
+    badge: 'Fast Backup',
+    isAdFree: true,
+    getUrl: (id) => `https://piped.mha.fi/embed/${id}?autoplay=1`,
+  },
+  {
+    id: 'direct',
+    label: 'Direct',
+    badge: 'Official',
+    isAdFree: false,
+    getUrl: (id, autoplay) =>
+      `https://www.youtube-nocookie.com/embed/${id}?autoplay=${autoplay ? 1 : 0}&playsinline=1&rel=0&iv_load_policy=3&modestbranding=1`,
+  },
+];
 
 interface VideoPlayerProps {
   videoId: string;
@@ -24,6 +66,26 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const [skippedCount, setSkippedCount] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
 
+  const [selectedServer, setSelectedServer] = useState<PlayerServer>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('@saddutube_player_server') as PlayerServer;
+      if (saved && (saved === 'piped-1' || saved === 'piped-2' || saved === 'direct')) {
+        return saved;
+      }
+    }
+    return 'piped-1';
+  });
+
+  const handleSelectServer = (serverId: PlayerServer) => {
+    setSelectedServer(serverId);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('@saddutube_player_server', serverId);
+    }
+  };
+
+  const currentServerOption =
+    PLAYER_SERVERS.find((s) => s.id === selectedServer) || PLAYER_SERVERS[0];
+
   // SponsorBlock query and auto-skip monitor
   useEffect(() => {
     let isCancelled = false;
@@ -32,7 +94,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       const segments = await SponsorBlockService.getSegmentsForVideo(videoId);
       if (isCancelled || !segments || segments.length === 0) return;
 
-      // Found sponsor segments for this video
       setSkippedCount(segments.length);
       const totalSaved = Math.round(
         segments.reduce((acc, s) => acc + (s.segment[1] - s.segment[0]), 0)
@@ -75,17 +136,114 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         transition: 'all 0.3s ease',
       }}
     >
+      {/* Top Stream Server Selector Bar */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          padding: '0.45rem 0.85rem',
+          backgroundColor: '#0A0A0F',
+          borderBottom: '1px solid rgba(255,255,255,0.08)',
+          flexWrap: 'wrap',
+          gap: '0.5rem',
+          fontSize: '0.78rem',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', flexWrap: 'wrap' }}>
+          <span style={{ color: '#94A3B8', fontWeight: 600, fontSize: '0.74rem' }}>
+            SERVER:
+          </span>
+          {PLAYER_SERVERS.map((server) => {
+            const isActive = selectedServer === server.id;
+            return (
+              <button
+                key={server.id}
+                onClick={() => handleSelectServer(server.id)}
+                style={{
+                  padding: '0.22rem 0.6rem',
+                  borderRadius: 8,
+                  border: isActive
+                    ? `1px solid ${server.isAdFree ? '#10B981' : colors.primary}`
+                    : '1px solid rgba(255,255,255,0.12)',
+                  backgroundColor: isActive
+                    ? server.isAdFree
+                      ? 'rgba(16, 185, 129, 0.2)'
+                      : 'rgba(255, 30, 56, 0.2)'
+                    : 'rgba(255,255,255,0.04)',
+                  color: isActive
+                    ? server.isAdFree
+                      ? '#34D399'
+                      : '#FFF'
+                    : '#94A3B8',
+                  fontSize: '0.74rem',
+                  fontWeight: isActive ? 700 : 500,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.3rem',
+                  transition: 'all 0.18s ease',
+                }}
+              >
+                {server.isAdFree ? (
+                  <IoShieldCheckmark size={12} color="#10B981" />
+                ) : (
+                  <span>⚡</span>
+                )}
+                {server.label}
+              </button>
+            );
+          })}
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          {currentServerOption.isAdFree ? (
+            <span
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.3rem',
+                color: '#10B981',
+                fontSize: '0.72rem',
+                fontWeight: 700,
+                backgroundColor: 'rgba(16, 185, 129, 0.12)',
+                padding: '0.15rem 0.5rem',
+                borderRadius: 6,
+              }}
+            >
+              <IoShieldCheckmark size={12} />
+              100% Ad-Free Active
+            </span>
+          ) : (
+            <span
+              style={{
+                color: '#F59E0B',
+                fontSize: '0.72rem',
+                fontWeight: 600,
+                backgroundColor: 'rgba(245, 158, 11, 0.12)',
+                padding: '0.15rem 0.5rem',
+                borderRadius: 6,
+              }}
+            >
+              Direct YouTube Player
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Main Responsive Video Player Viewport */}
       <div style={{ position: 'relative', width: '100%', aspectRatio: '16/9' }}>
         <iframe
-          src={buildYouTubeEmbedUrl(videoId, true)}
-          title={title || 'YouTube Player'}
+          key={`${videoId}-${selectedServer}`}
+          src={currentServerOption.getUrl(videoId, true)}
+          title={title || 'SadduTube Player'}
           style={{ width: '100%', height: '100%', border: 'none' }}
           allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
           allowFullScreen
         />
       </div>
 
-      {/* Player Pro Controls Bar */}
+      {/* Player Pro Controls & Status Bar */}
       <div
         style={{
           display: 'flex',
@@ -96,6 +254,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           borderTop: '1px solid rgba(255,255,255,0.08)',
           fontSize: '0.8rem',
           color: '#94A3B8',
+          flexWrap: 'wrap',
+          gap: '0.5rem',
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
@@ -114,12 +274,37 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               }}
             >
               <IoFlash size={12} />
-              SponsorBlock Active ({skippedCount} segments)
+              SponsorBlock ({skippedCount} segments skipped)
             </span>
           )}
-          <span style={{ fontSize: '0.75rem', color: '#64748B' }}>
-            Ad-Free Shield: <strong style={{ color: colors.success }}>ACTIVE</strong>
-          </span>
+
+          {/* Quick Server Switch Helper */}
+          <button
+            onClick={() => {
+              const nextServer =
+                selectedServer === 'piped-1'
+                  ? 'piped-2'
+                  : selectedServer === 'piped-2'
+                  ? 'direct'
+                  : 'piped-1';
+              handleSelectServer(nextServer);
+            }}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: '#38BDF8',
+              fontSize: '0.74rem',
+              fontWeight: 600,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.3rem',
+              padding: 0,
+            }}
+          >
+            <IoSwapHorizontal size={13} />
+            Switch Server
+          </button>
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', position: 'relative' }}>
@@ -225,3 +410,4 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     </div>
   );
 };
+
